@@ -68,7 +68,7 @@ jobs:
         with:
           type: 'zip'
           directory: './outputs/publish/${{ matrix.runtime }}'
-          filename: 'resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
+          filename: '../../resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
 
       - name: Add to release
         uses: softprops/action-gh-release@v1
@@ -97,10 +97,6 @@ jobs:
       - name: Pack
         id: pack
         run: dotnet pack ./src/ResXporter/ResXporter.csproj --configuration Release --output ./outputs/packages --property:AssemblyName=resxporter --property:Version=${{ needs.prepare.outputs.version }}
-
-      - name: Publish
-        id: publish
-        run: dotnet pack ./src/ResXporter/ResXporter.csproj --configuration Release --output ./outputs/pack --property:Version=${{ needs.prepare.outputs.version }}
 
       - name: Add to release
         uses: softprops/action-gh-release@v1
