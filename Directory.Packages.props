@@ -1,0 +1,12 @@
+﻿<Project>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    </PropertyGroup>
+    
+    <ItemGroup>
+        <PackageVersion Include="CsvHelper" Version="33.0.1" />
+        <PackageVersion Include="Spectre.Console" Version="0.49.1" />
+        <PackageVersion Include="Spectre.Console.Cli" Version="0.49.1" />
+        <PackageVersion Include="Spectre.Console.Cli.Extensions.DependencyInjection" Version="0.6.0" />
+    </ItemGroup>
+</Project>
