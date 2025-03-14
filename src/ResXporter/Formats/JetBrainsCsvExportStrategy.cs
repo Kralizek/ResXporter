@@ -12,14 +12,8 @@ public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStra
 
     public async IAsyncEnumerable<FileInfo> ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings)
     {
-        var cultures = rows
-            .SelectMany(r => r.Values.Keys)
-            .Distinct()
-            .ToHashSet();
-
-        var orderedCultures = cultures
-            .OrderBy(c => c.Equals(CultureInfo.InvariantCulture) ? 0 : 1)
-            .ThenBy(c => c.Name)
+        var translationCultures = settings.Cultures
+            .OrderBy(c => c.Name)
             .ToList();
 
         settings.Output.Create();
@@ -32,11 +26,12 @@ public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStra
         csv.WriteField("Path");
         csv.WriteField("Name");
         
-        foreach (var culture in orderedCultures)
+        csv.WriteField("Default Culture");
+        csv.WriteField("Comment");
+        
+        foreach (var culture in translationCultures)
         {
-            var columnName = culture.Equals(CultureInfo.InvariantCulture) ? "Default Culture" : culture.Name;
-            
-            csv.WriteField(columnName);
+            csv.WriteField(culture.Name);
             csv.WriteField("Comment");
         }
         
@@ -51,7 +46,10 @@ public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStra
             csv.WriteField(relativePath);
             csv.WriteField(row.Key);
             
-            foreach (var culture in orderedCultures)
+            csv.WriteField(row.Values[CultureInfo.InvariantCulture]);
+            csv.WriteField(string.Empty);
+            
+            foreach (var culture in translationCultures)
             {
                 row.Values.TryGetValue(culture, out var translation);
                 csv.WriteField(translation ?? string.Empty);

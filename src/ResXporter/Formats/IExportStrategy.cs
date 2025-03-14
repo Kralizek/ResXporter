@@ -16,4 +16,6 @@ public record ExportSettings
 {
     public DirectoryInfo Output { get; init; } = default!;
     public bool OnlyMissing { get; init; } = false;
+    
+    public CultureInfo[] Cultures { get; init; } = [];
 }

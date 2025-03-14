@@ -84,14 +84,17 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
 
         var data = LoadFiles(files);
 
+        var translationCultures = data.Keys.Select(c => c.Culture)
+            .Where(c => c != null)
+            .Distinct()
+            .Cast<CultureInfo>()
+            .ToArray();
+
         var rows = MergeResources(data);
 
         if (settings.OnlyMissing)
         {
-            var allCultures = data.Keys.Select(c => c.Culture).Distinct();
-            
-            rows = rows
-                .Where(row => IsMissingAtLeastOneTranslation(row, allCultures));
+            rows = rows.Where(row => IsMissingAtLeastOneTranslation(row, translationCultures));
         }
 
         var items = rows.ToArray();
@@ -101,7 +104,8 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         var exportSettings = new ExportSettings
         {
             Output = settings.Output,
-            OnlyMissing = settings.OnlyMissing
+            OnlyMissing = settings.OnlyMissing,
+            Cultures = translationCultures
         };
 
         var outputFiles = await exportStrategy.ExportAsync(items, exportSettings).ToListAsync();
