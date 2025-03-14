@@ -67,7 +67,7 @@ jobs:
         uses: thedoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          files: './outputs/publish/${{ matrix.runtime }}'
+          directory: './outputs/publish/${{ matrix.runtime }}'
           filename: 'resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
 
       - name: Add to release
