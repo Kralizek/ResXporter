@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*.*.*
+
+permissions:
+  packages: write
+  contents: write
+
+jobs:
+
+  prepare:
+    name: Preparation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.1.11
+        with:
+          versionSpec: '5.x'
+
+      - name: Determine version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.1.11
+        with:
+          useConfigFile: true
+    outputs:
+      version: ${{ steps.gitversion.outputs.semVer }}
+
+  release:
+    name: Publish executable
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet publish --configuration Release --no-restore
+
+      - name: Publish
+        id: publish
+        run: dotnet publish ./src/ResXporter/ResXporter.csproj --configuration Release --runtime ${{ matrix.runtime }} --output ./outputs/publish/${{ matrix.runtime }} --property:Version=${{ needs.prepare.outputs.version }} --property:DebugType=None --property:DebugSymbols=False --property:PublishSingleFile=True --property:SelfContained=True --property:AssemblyName=resxporter
+
+      - name: Archive
+        id: zip
+        uses: thedoctor0/zip-release@0.7.1
+        with:
+          type: 'zip'
+          files: './outputs/publish/${{ matrix.runtime }}'
+          filename: 'resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
+
+      - name: Add to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./outputs/resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip
+
+  pack:
+    name: Publish as .NET tool
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Pack
+        id: pack
+        run: dotnet pack ./src/ResXporter/ResXporter.csproj --configuration Release --output ./outputs/packages --property:AssemblyName=resxporter --property:Version=${{ needs.prepare.outputs.version }}
+
+      - name: Publish
+        id: publish
+        run: dotnet pack ./src/ResXporter/ResXporter.csproj --configuration Release --output ./outputs/pack --property:Version=${{ needs.prepare.outputs.version }}
+
+      - name: Add to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./outputs/packages/*.nupkg
+
+      - name: Push to NuGet
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_TOKEN }}
+        run: |
+          dotnet nuget push ./outputs/packages/*.nupkg --api-key $NUGET_AUTH_TOKEN --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Push to GitHub Package Registry
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: | 
+          dotnet nuget push ./outputs/packages/*.nupkg --api-key $NUGET_AUTH_TOKEN --source https://nuget.pkg.github.com/Kralizek/index.json --skip-duplicate

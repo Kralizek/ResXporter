@@ -7,6 +7,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup Label="Package Information">
+    <PackageId>ResXporter.Tool</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <IsPackable>true</IsPackable>
+    <ToolCommandName>resxporter</ToolCommandName>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="CsvHelper" />
     <PackageReference Include="ResXResourceReader.NetStandard" />
