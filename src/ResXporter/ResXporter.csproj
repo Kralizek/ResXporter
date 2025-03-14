@@ -9,8 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" />
+    <PackageReference Include="ResXResourceReader.NetStandard" />
     <PackageReference Include="Spectre.Console.Cli" />
     <PackageReference Include="Spectre.Console.Cli.Extensions.DependencyInjection" />
+    <PackageReference Include="System.Linq.Async" />
   </ItemGroup>
 
 </Project>
