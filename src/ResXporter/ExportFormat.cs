@@ -1,6 +1,6 @@
 ﻿namespace ResXporter;
 
-public enum ExportFormat
+public enum Exporter
 {
     JetBrainsCsv
 }

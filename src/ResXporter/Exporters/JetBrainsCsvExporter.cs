@@ -4,13 +4,15 @@ using System.Text;
 using CsvHelper;
 using CsvHelper.Configuration;
 
-namespace ResXporter.Formats;
+using Spectre.Console;
 
-public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStrategy
+namespace ResXporter.Exporters;
+
+public class JetBrainsCsvExporter : IExporter
 {
     private static readonly CsvConfiguration Configuration = new(CultureInfo.InvariantCulture) { Delimiter = ";" };
 
-    public async IAsyncEnumerable<FileInfo> ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings)
+    public async Task ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings)
     {
         var translationCultures = settings.Cultures
             .OrderBy(c => c.Name)
@@ -18,7 +20,7 @@ public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStra
 
         settings.Output.Create();
 
-        var csvPath = Path.Combine(settings.Output.FullName, $"{timeProvider.GetLocalNow():yyyyMMdd-HHmmss}-{(settings.OnlyMissing ? "partial" : "full")}.csv");
+        var csvPath = Path.Combine(settings.Output.FullName, $"{nameof(Exporter.JetBrainsCsv)}-{(settings.OnlyMissing ? "partial" : "full")}.csv");
 
         await using var writer = new StreamWriter(csvPath, false, Encoding.UTF8);
         await using var csv = new CsvWriter(writer, Configuration);
@@ -61,6 +63,6 @@ public class JetBrainsCsvExportStrategy(TimeProvider timeProvider) : IExportStra
 
         await csv.FlushAsync();
         
-        yield return new FileInfo(csvPath);
+        AnsiConsole.MarkupLine($"[gray]Exported {rows.Count} rows to {csvPath}[/]");
     }
 }

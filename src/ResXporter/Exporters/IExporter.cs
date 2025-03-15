@@ -1,10 +1,10 @@
 ﻿using System.Globalization;
 
-namespace ResXporter.Formats;
+namespace ResXporter.Exporters;
 
-public interface IExportStrategy
+public interface IExporter
 {
-    IAsyncEnumerable<FileInfo> ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings);
+    Task ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings);
 }
 
 public record ResourceRow(FileInfo BaseFile, string BaseName, string Key)

@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using ResXporter.Formats;
+using ResXporter.Exporters;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -35,10 +35,10 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         [CommandOption("--only-missing")]
         [DefaultValue(false)]
         public bool OnlyMissing { get; init; }
-        
-        [Description("Export format.")]
-        [CommandOption("--format <FORMAT>")]
-        public ExportFormat Format { get; init; }
+
+        [Description("The exporters to be used to process the resx files.")]
+        [CommandOption("--exporter <FORMAT>")]
+        public Exporter[] Exporters { get; init; } = [];
 
         public override ValidationResult Validate()
         {
@@ -63,10 +63,10 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
                     }
                 }
             }
-            
-            if (Format != ExportFormat.JetBrainsCsv)
+
+            if (Exporters is [])
             {
-                return ValidationResult.Error("Invalid export format. Only JetBrainsCsv is supported.");
+                return ValidationResult.Error("No exporters specified.");
             }
             
             return base.Validate();
@@ -99,28 +99,24 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
 
         var items = rows.ToArray();
         
-        IExportStrategy exportStrategy = serviceProvider.GetRequiredKeyedService<IExportStrategy>(settings.Format);
-        
         var exportSettings = new ExportSettings
         {
             Output = settings.Output,
             OnlyMissing = settings.OnlyMissing,
             Cultures = translationCultures
         };
-
-        var outputFiles = await exportStrategy.ExportAsync(items, exportSettings).ToListAsync();
-
+        
+        foreach (var exporter in settings.Exporters)
+        {
+            var exporterService = serviceProvider.GetRequiredKeyedService<IExporter>(exporter);
+            await exporterService.ExportAsync(items, exportSettings);
+        }
+        
         var elapsed = Stopwatch.GetElapsedTime(timestamp);
         
         AnsiConsole.MarkupLine("[green]Export completed successfully![/]");
-
-        foreach (var file in outputFiles)
-        {
-            AnsiConsole.MarkupLine($"[gray]File: {file.FullName}[/]");
-        }
         
         AnsiConsole.MarkupLine($"[gray]Elapsed time: {elapsed:g}[/]");
-        AnsiConsole.MarkupLine($"[gray]Rows exported: {items.Length}[/]");
 
         return 0;
     }
