@@ -39,6 +39,11 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         [Description("The exporters to be used to process the resx files.")]
         [CommandOption("--exporter <FORMAT>")]
         public Exporter[] Exporters { get; init; } = [];
+        
+        [Description("If enabled, copy missing translations from other keys with the same default culture value.")]
+        [CommandOption("--copy-translations")]
+        [DefaultValue(false)]
+        public bool CopyTranslations { get; init; }
 
         public override ValidationResult Validate()
         {
@@ -90,7 +95,7 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
             .Cast<CultureInfo>()
             .ToArray();
 
-        var rows = MergeResources(data);
+        var rows = MergeResources(data, settings.CopyTranslations);
 
         if (settings.OnlyMissing)
         {
@@ -206,9 +211,11 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         return result;
     }
     
-    private static IEnumerable<ResourceRow> MergeResources(Dictionary<(FileInfo BaseFile, CultureInfo? Culture), Dictionary<string, string>> data)
+    private static IEnumerable<ResourceRow> MergeResources(Dictionary<(FileInfo BaseFile, CultureInfo? Culture), Dictionary<string, string>> data, bool copyTranslations)
     {
         var results = new Dictionary<(string baseName, string key), ResourceRow>();
+
+        var defaultCultureLookup = new Dictionary<string, List<ResourceRow>>(StringComparer.OrdinalIgnoreCase);
         
         foreach (var ((baseFile, culture), resources) in data)
         {
@@ -226,6 +233,43 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
                 }
                 
                 row.Values.Add(culture ?? CultureInfo.InvariantCulture, value);
+
+                if (culture is not null)
+                {
+                    continue;
+                }
+
+                if (!defaultCultureLookup.TryGetValue(value, out var list))
+                {
+                    list = [];
+                    defaultCultureLookup.Add(value, list);
+                }
+
+                list.Add(row);
+            }
+        }
+
+        if (copyTranslations)
+        {
+            foreach (var row in results.Values)
+            {
+                if (!row.Values.TryGetValue(CultureInfo.InvariantCulture, out var defaultValue))
+                    continue;
+
+                if (!defaultCultureLookup.TryGetValue(defaultValue, out var similarRows))
+                    continue;
+
+                foreach (var similarRow in similarRows)
+                {
+                    if (similarRow == row) continue;
+
+                    foreach (var (culture, translataion) in similarRow.Values)
+                    {
+                        if (culture.Equals(CultureInfo.InvariantCulture)) continue;
+
+                        row.Values.TryAdd(culture, translataion);
+                    }
+                }
             }
         }
 
