@@ -20,25 +20,29 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
     public sealed class Settings : CommandSettings
     {
         [Description("Path to the directory containing the .resx files.")]
-        [CommandOption("--path <PATH>")]
+        [CommandOption("-p|--path <PATH>")]
         public DirectoryInfo Path { get; init; } = default!;
         
         [Description("List of .resx files to export.")]
-        [CommandOption("--file <FILE>")]
+        [CommandOption("-f|--file <FILE>")]
         public string[]? Files { get; init; }
         
         [Description("Path to the directory where the .resx files will be exported.")]
-        [CommandOption("--output <OUTPUT>")]
+        [CommandOption("-o|--output <OUTPUT>")]
         public DirectoryInfo Output { get; init; } = default!;
+        
+        [Description("The exporters to be used to process the resx files.")]
+        [CommandOption("-e|--exporter <FORMAT>")]
+        public Exporter[] Exporters { get; init; } = [];
+        
+        [Description("Additional arguments for the selected exporter (FORMAT:key=value).")]
+        [CommandOption("-a|--exporter-arg <KEY=VALUE>")]
+        public string[]? ExporterArgs { get; init; }
         
         [Description("Export only keys that have at least one missing translation.")]
         [CommandOption("--only-missing")]
         [DefaultValue(false)]
         public bool OnlyMissing { get; init; }
-
-        [Description("The exporters to be used to process the resx files.")]
-        [CommandOption("--exporter <FORMAT>")]
-        public Exporter[] Exporters { get; init; } = [];
         
         [Description("If enabled, copy missing translations from other keys with the same default culture value.")]
         [CommandOption("--copy-translations")]
@@ -104,15 +108,22 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
 
         var items = rows.ToArray();
         
-        var exportSettings = new ExportSettings
-        {
-            Output = settings.Output,
-            OnlyMissing = settings.OnlyMissing,
-            Cultures = translationCultures
-        };
-        
         foreach (var exporter in settings.Exporters)
         {
+            var exporterArgs = settings.ExporterArgs?
+                .Where(arg => arg.StartsWith($"{exporter}:", StringComparison.OrdinalIgnoreCase))
+                .Select(arg => arg.Split(':', 2)[1].Split('=', 2))
+                .Where(parts => parts.Length == 2)
+                .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.OrdinalIgnoreCase) ?? [];
+            
+            var exportSettings = new ExportSettings
+            {
+                Output = settings.Output,
+                OnlyMissing = settings.OnlyMissing,
+                Cultures = translationCultures,
+                Arguments = exporterArgs,
+            };
+            
             var exporterService = serviceProvider.GetRequiredKeyedService<IExporter>(exporter);
             await exporterService.ExportAsync(items, exportSettings);
         }

@@ -20,7 +20,11 @@ public class JetBrainsCsvExporter : IExporter
 
         settings.Output.Create();
 
-        var csvPath = Path.Combine(settings.Output.FullName, $"{nameof(Exporter.JetBrainsCsv)}-{(settings.OnlyMissing ? "partial" : "full")}.csv");
+        var fileName = settings.Arguments.TryGetValue("fileName", out var customFileName)
+            ? customFileName
+            : $"{nameof(Exporter.JetBrainsCsv)}-{(settings.OnlyMissing ? "partial" : "full")}.csv";
+
+        var csvPath = Path.Combine(settings.Output.FullName, fileName);
 
         await using var writer = new StreamWriter(csvPath, false, Encoding.UTF8);
         await using var csv = new CsvWriter(writer, Configuration);

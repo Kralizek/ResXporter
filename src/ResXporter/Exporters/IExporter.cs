@@ -18,4 +18,6 @@ public record ExportSettings
     public bool OnlyMissing { get; init; } = false;
     
     public CultureInfo[] Cultures { get; init; } = [];
+
+    public Dictionary<string, string> Arguments { get; init; } = [];
 }
