@@ -27,10 +27,6 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         [CommandOption("-f|--file <FILE>")]
         public string[]? Files { get; init; }
         
-        [Description("Path to the directory where the .resx files will be exported.")]
-        [CommandOption("-o|--output <OUTPUT>")]
-        public DirectoryInfo Output { get; init; } = default!;
-        
         [Description("The exporters to be used to process the resx files.")]
         [CommandOption("-e|--exporter <FORMAT>")]
         public Exporter[] Exporters { get; init; } = [];
@@ -54,11 +50,6 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
             if (!Path.Exists)
             {
                 return ValidationResult.Error("Path does not exist.");
-            }
-
-            if (!Output.Parent?.Exists ?? false)
-            {
-                return ValidationResult.Error("Output directory does not exist.");
             }
 
             if (Files is not null or [])
@@ -118,7 +109,6 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
             
             var exportSettings = new ExportSettings
             {
-                Output = settings.Output,
                 OnlyMissing = settings.OnlyMissing,
                 Cultures = translationCultures,
                 Arguments = exporterArgs,
