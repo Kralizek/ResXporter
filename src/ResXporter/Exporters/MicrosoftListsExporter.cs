@@ -14,6 +14,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
     {
         var siteId = settings.Arguments.GetValue("siteId");
         var listId = settings.Arguments.GetValue("listId");
+        var updateExistingItems = settings.Arguments.TryGetValue("updateExistingItems", out var updateExisting) && bool.TryParse(updateExisting, out var updateExistingValue) && updateExistingValue;
 
         var accessToken = await GetAccessToken(settings);
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -28,7 +29,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
             {
                 await CreateNewListItem(siteId, listId, row);
             }
-            else
+            else if (updateExistingItems)
             {
                 DateTime lastModified = DateTime.Parse(existingItem["Modified"]);
                 DateTime lastSyncedAt = DateTime.Parse(existingItem["LastSyncedAt"]);
