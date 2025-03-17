@@ -2,5 +2,6 @@
 
 public enum Exporter
 {
-    JetBrainsCsv
+    JetBrainsCsv,
+    MicrosoftLists
 }
