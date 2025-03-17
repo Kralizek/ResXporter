@@ -18,15 +18,15 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         var accessToken = await GetAccessToken(settings);
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-        foreach (var row in rows)
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+
+        await Parallel.ForEachAsync(rows.OrderBy(c => c.Key), options, async (row, _) =>
         {
             var existingItem = await FindExistingItem(siteId, listId, row.Key);
 
             if (existingItem is null)
             {
                 await CreateNewListItem(siteId, listId, row);
-                
-                AnsiConsole.MarkupLine($"{row.Key} [green]created[/]");
             }
             else
             {
@@ -36,15 +36,13 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
                 if (lastModified > lastSyncedAt)
                 {
                     AnsiConsole.MarkupLine($"{row.Key} [yellow]skipped[/]");
-                    
-                    continue;
+
+                    return;
                 }
                 
                 await UpdateListItem(siteId, listId, existingItem, row);
-                
-                AnsiConsole.MarkupLine($"{row.Key} [green]updated[/]");
             }
-        }
+        });
     }
     
     private async Task<string> GetAccessToken(ExportSettings settings)
@@ -64,7 +62,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
 
         var response = await http.PostAsync(tokenUrl, requestBody);
         response.EnsureSuccessStatusCode();
-        
+
         var responseToken = await response.Content.ReadAsStringAsync();
         var tokenJson = JsonDocument.Parse(responseToken);
         
@@ -73,8 +71,11 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
     
     private async Task<Dictionary<string, string>?> FindExistingItem(string siteId, string listId, string key)
     {
-        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items?$filter=fields/ResourceKey eq '{key}'";
-        
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items?" +
+                  "$expand=fields($select=Title,LastSyncedAt)" +
+                  "&$select=id,lastModifiedDateTime" +
+                  $"&$filter=fields/Title eq '{key}'";
+
         using var response = await http.GetAsync(url);
         
         if (!response.IsSuccessStatusCode) return null;
@@ -88,8 +89,9 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         return new Dictionary<string, string>
         {
             ["Id"] = items[0].GetProperty("id").GetString() ?? string.Empty,
-            ["Modified"] = items[0].GetProperty("fields").GetProperty("Modified").GetString() ?? string.Empty,
+            ["Modified"] = items[0].GetProperty("lastModifiedDateTime").GetString() ?? string.Empty,
             ["LastSyncedAt"] = items[0].GetProperty("fields").GetProperty("LastSyncedAt").GetString() ?? string.Empty,
+            ["ResourceKey"] = items[0].GetProperty("fields").GetProperty("Title").GetString() ?? string.Empty,
             ["Etag"] = items[0].GetProperty("@odata.etag").GetString() ?? string.Empty
         };
     }
@@ -104,7 +106,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         {
             fields = new Dictionary<string, object>()
             {
-                ["ResourceKey"] = row.Key,
+                ["Title"] = row.Key,
                 ["Path"] = relativePath,
                 ["LastSyncedAt"] = DateTime.UtcNow.ToString("o")
             }
@@ -119,7 +121,14 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items";
         using var response = await http.PostAsJsonAsync(url, requestBody, JsonSerializerOptions.Web);
 
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            AnsiConsole.MarkupLine($"[red]Failed to create item {row.Key}[/]: {response.ReasonPhrase}");
+
+            return;
+        }
+        
+        AnsiConsole.MarkupLine($"{row.Key} [green]created[/]");
     }
     
     private async Task UpdateListItem(string siteId, string listId, Dictionary<string, string> item, ResourceRow row)
@@ -146,9 +155,12 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items/{item["Id"]}/fields";
         
         using var request = new HttpRequestMessage(HttpMethod.Patch, url);
-        request.Content = JsonContent.Create(requestBody);
+        request.Content = JsonContent.Create(requestBody.fields);
 
-        request.Headers.IfMatch.Add(EntityTagHeaderValue.Parse(item["Etag"]));
+        if (item.TryGetValue("Etag", out var etag) && !string.IsNullOrEmpty(etag))
+        {
+            request.Headers.IfMatch.Add(EntityTagHeaderValue.Parse(etag));
+        }
         
         using var response = await http.SendAsync(request);
 
@@ -157,7 +169,14 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
             return;
         }
 
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            AnsiConsole.MarkupLine($"[red]Failed to update item {row.Key}[/]: {response.ReasonPhrase}");
+
+            return;
+        }
+        
+        AnsiConsole.MarkupLine($"{row.Key} [green]updated[/]");
     }
 }
 

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="ResXResourceReader.NetStandard" />
     <PackageReference Include="Spectre.Console.Cli" />
     <PackageReference Include="Spectre.Console.Cli.Extensions.DependencyInjection" />
