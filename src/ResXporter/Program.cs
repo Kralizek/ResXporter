@@ -11,6 +11,7 @@ var services = new ServiceCollection();
 
 services.AddSingleton(TimeProvider.System);
 services.AddKeyedScoped<IExporter, JetBrainsCsvExporter>(Exporter.JetBrainsCsv);
+services.AddKeyedScoped<IExporter, MicrosoftListsExporter>(Exporter.MicrosoftLists);
 
 var registrar = new DependencyInjectionRegistrar(services);
 
