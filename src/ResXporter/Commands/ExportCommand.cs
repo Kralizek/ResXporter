@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Resources.NetStandard;
-using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,7 +14,7 @@ using Spectre.Console.Cli;
 
 namespace ResXporter.Commands;
 
-public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<ExportCommand.Settings>
+public class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<ExportCommand.Settings>
 {
     public sealed class Settings : CommandSettings
     {
@@ -72,9 +71,6 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
             return base.Validate();
         }
     }
-
-    [GeneratedRegex(@"^(?<baseName>.+?)(?:\.(?<culture>[a-z]{2}(-[A-Z]{2,4})?))?\.resx$", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
-    private static partial Regex ResxFilePattern();
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
     {

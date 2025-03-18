@@ -7,11 +7,6 @@ public interface IExporter
     Task ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings);
 }
 
-public record ResourceRow(FileInfo BaseFile, string BaseName, string Key)
-{
-    public Dictionary<CultureInfo, string> Values { get; } = [];
-}
-
 public record ExportSettings
 {
     public bool OnlyMissing { get; init; } = false;

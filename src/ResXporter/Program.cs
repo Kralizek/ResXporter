@@ -21,6 +21,8 @@ var app = new CommandApp(registrar);
 app.Configure(config =>
 {
     config.AddCommand<ExportCommand>("export");
+
+    config.AddCommand<ImportCommand>("import");
 });
 
 return await app.RunAsync(args);
