@@ -10,7 +10,7 @@ public enum Exporter
 
 public enum Loader
 {
-    
+    JetBrainsCsv
 }
 
 public record ResourceRow(FileInfo BaseFile, string BaseName, string Key)

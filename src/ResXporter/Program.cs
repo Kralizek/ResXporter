@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ResXporter;
 using ResXporter.Commands;
 using ResXporter.Exporters;
+using ResXporter.Loaders;
 
 using Spectre.Console.Cli.Extensions.DependencyInjection;
 
@@ -13,6 +14,8 @@ services.AddHttpClient();
 services.AddSingleton(TimeProvider.System);
 services.AddKeyedScoped<IExporter, JetBrainsCsvExporter>(Exporter.JetBrainsCsv);
 services.AddKeyedScoped<IExporter, MicrosoftListsExporter>(Exporter.MicrosoftLists);
+
+services.AddKeyedScoped<ILoader, JetBrainsCsvLoader>(Loader.JetBrainsCsv);
 
 var registrar = new DependencyInjectionRegistrar(services);
 
