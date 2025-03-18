@@ -5,7 +5,7 @@ using System.Resources.NetStandard;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using ResXporter.Loaders;
+using ResXporter.Providers;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -22,7 +22,7 @@ public class ImportCommand(IServiceProvider serviceProvider) : AsyncCommand<Impo
         
         [Description("The type of the loader to use.")]
         [CommandOption("-l|--loader <LOADER>")]
-        public Loader Loader { get; init; } = default!;
+        public Provider Loader { get; init; } = default!;
         
         [Description("Update existing translations.")]
         [CommandOption("--update-existing")]
@@ -37,6 +37,8 @@ public class ImportCommand(IServiceProvider serviceProvider) : AsyncCommand<Impo
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
     {
         var rows = await FetchRowsAsync(settings);
+        
+        AnsiConsole.MarkupLine($"Retrieved {rows.Count} rows from the loader.");
 
         var lookup = PivotRows(rows);
 
@@ -140,7 +142,7 @@ public class ImportCommand(IServiceProvider serviceProvider) : AsyncCommand<Impo
             Arguments = args
         };
 
-        var rows = await loader.FetchAsync(loaderSettings).ToListAsync();
+        var rows = await loader.FetchAsync(loaderSettings).ToArrayAsync();
 
         return rows;
     }

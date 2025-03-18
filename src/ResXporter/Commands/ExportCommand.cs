@@ -7,7 +7,7 @@ using System.Resources.NetStandard;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using ResXporter.Exporters;
+using ResXporter.Providers;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -28,7 +28,7 @@ public class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<Expo
         
         [Description("The exporters to be used to process the resx files.")]
         [CommandOption("-e|--exporter <FORMAT>")]
-        public Exporter[] Exporters { get; init; } = [];
+        public Provider[] Exporters { get; init; } = [];
         
         [Description("Additional arguments for the selected exporter (FORMAT:key=value).")]
         [CommandOption("-a|--exporter-arg <KEY=VALUE>")]
@@ -276,19 +276,5 @@ public class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<Expo
     private static bool IsMissingAtLeastOneTranslation(ResourceRow row, IEnumerable<CultureInfo?> cultures)
     {
         return cultures.Any(culture => !row.Values.ContainsKey(culture ?? CultureInfo.InvariantCulture));
-    }
-    
-    private static bool TryGetCultureInfo(string cultureName, [NotNullWhen(true)] out CultureInfo? culture)
-    {
-        try
-        {
-            culture = CultureInfo.GetCultureInfo(cultureName);
-            return true;
-        }
-        catch
-        {
-            culture = null;
-            return false;
-        }
     }
 }
