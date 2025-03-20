@@ -4,18 +4,17 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Resources.NetStandard;
-using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using ResXporter.Exporters;
+using ResXporter.Providers;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
 
 namespace ResXporter.Commands;
 
-public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<ExportCommand.Settings>
+public class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<ExportCommand.Settings>
 {
     public sealed class Settings : CommandSettings
     {
@@ -29,7 +28,7 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
         
         [Description("The exporters to be used to process the resx files.")]
         [CommandOption("-e|--exporter <FORMAT>")]
-        public Exporter[] Exporters { get; init; } = [];
+        public Provider[] Exporters { get; init; } = [];
         
         [Description("Additional arguments for the selected exporter (FORMAT:key=value).")]
         [CommandOption("-a|--exporter-arg <KEY=VALUE>")]
@@ -72,9 +71,6 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
             return base.Validate();
         }
     }
-
-    [GeneratedRegex(@"^(?<baseName>.+?)(?:\.(?<culture>[a-z]{2}(-[A-Z]{2,4})?))?\.resx$", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
-    private static partial Regex ResxFilePattern();
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
     {
@@ -280,19 +276,5 @@ public partial class ExportCommand(IServiceProvider serviceProvider) : AsyncComm
     private static bool IsMissingAtLeastOneTranslation(ResourceRow row, IEnumerable<CultureInfo?> cultures)
     {
         return cultures.Any(culture => !row.Values.ContainsKey(culture ?? CultureInfo.InvariantCulture));
-    }
-    
-    private static bool TryGetCultureInfo(string cultureName, [NotNullWhen(true)] out CultureInfo? culture)
-    {
-        try
-        {
-            culture = CultureInfo.GetCultureInfo(cultureName);
-            return true;
-        }
-        catch
-        {
-            culture = null;
-            return false;
-        }
     }
 }

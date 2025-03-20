@@ -6,17 +6,43 @@ using System.Text.Json;
 
 using Spectre.Console;
 
-namespace ResXporter.Exporters;
+namespace ResXporter.Providers;
 
-public class MicrosoftListsExporter(HttpClient http) : IExporter
+public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 {
+    private const string LangPrefix = "lang_x003a_";
+
+    private async Task<string> GetAccessToken(string clientId, string clientSecret, string tenantId)
+    {
+        var tokenUrl = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
+        var requestBody = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["client_id"] = clientId,
+            ["scope"] = "https://graph.microsoft.com/.default",
+            ["client_secret"] = clientSecret,
+            ["grant_type"] = "client_credentials"
+        });
+
+        var response = await http.PostAsync(tokenUrl, requestBody);
+        response.EnsureSuccessStatusCode();
+
+        var responseToken = await response.Content.ReadAsStringAsync();
+        var tokenJson = JsonDocument.Parse(responseToken);
+        
+        return tokenJson.RootElement.GetProperty("access_token").GetString() ?? throw new Exception("Failed to obtain access token.");
+    }
+    
     public async Task ExportAsync(IReadOnlyList<ResourceRow> rows, ExportSettings settings)
     {
-        var siteId = settings.Arguments.GetValue("siteId");
-        var listId = settings.Arguments.GetValue("listId");
-        var updateExistingItems = settings.Arguments.TryGetValue("updateExistingItems", out var updateExisting) && bool.TryParse(updateExisting, out var updateExistingValue) && updateExistingValue;
+        var clientId = settings.Arguments.GetRequiredValue("clientId");
+        var clientSecret = settings.Arguments.GetRequiredValue("clientSecret");
+        var tenantId = settings.Arguments.GetRequiredValue("tenantId");
+        
+        var siteId = settings.Arguments.GetRequiredValue("siteId");
+        var listId = settings.Arguments.GetRequiredValue("listId");
+        var updateExistingItems = settings.Arguments.GetBooleanValue("updateExistingItems");
 
-        var accessToken = await GetAccessToken(settings);
+        var accessToken = await GetAccessToken(clientId, clientSecret, tenantId);
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
@@ -44,30 +70,6 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
                 await UpdateListItem(siteId, listId, existingItem, row);
             }
         });
-    }
-    
-    private async Task<string> GetAccessToken(ExportSettings settings)
-    {
-        var clientId = settings.Arguments.GetValue("clientId");
-        var clientSecret = settings.Arguments.GetValue("clientSecret");
-        var tenantId = settings.Arguments.GetValue("tenantId");
-        
-        var tokenUrl = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
-        var requestBody = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["client_id"] = clientId,
-            ["scope"] = "https://graph.microsoft.com/.default",
-            ["client_secret"] = clientSecret,
-            ["grant_type"] = "client_credentials"
-        });
-
-        var response = await http.PostAsync(tokenUrl, requestBody);
-        response.EnsureSuccessStatusCode();
-
-        var responseToken = await response.Content.ReadAsStringAsync();
-        var tokenJson = JsonDocument.Parse(responseToken);
-        
-        return tokenJson.RootElement.GetProperty("access_token").GetString() ?? throw new Exception("Failed to obtain access token.");
     }
     
     private async Task<Dictionary<string, string>?> FindExistingItem(string siteId, string listId, string key)
@@ -115,7 +117,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? "DefaultCulture" : culture.Name;
+            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
             requestBody.fields.Add(cultureKey, value);
         }
         
@@ -149,7 +151,7 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? "DefaultCulture" : culture.Name;
+            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
             requestBody.fields.Add(cultureKey, value);
         }
         
@@ -179,12 +181,72 @@ public class MicrosoftListsExporter(HttpClient http) : IExporter
         
         AnsiConsole.MarkupLine($"{row.Key} [green]updated[/]");
     }
-}
 
-file static class DictionaryExtensions
-{
-    public static TValue GetValue<TKey, TValue>(this IDictionary<TKey, TValue> dictionary, TKey key)
+    public async IAsyncEnumerable<ResourceRow> FetchAsync(LoaderSettings settings)
     {
-        return dictionary.TryGetValue(key, out var value) ? value : throw new Exception($"Argument not found: {key}");
+        var clientId = settings.Arguments.GetRequiredValue("clientId");
+        var clientSecret = settings.Arguments.GetRequiredValue("clientSecret");
+        var tenantId = settings.Arguments.GetRequiredValue("tenantId");
+        
+        var siteId = settings.Arguments.GetRequiredValue("siteId");
+        var listId = settings.Arguments.GetRequiredValue("listId");
+        
+        var accessToken = await GetAccessToken(clientId, clientSecret, tenantId);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items?$expand=fields";
+
+        do
+        {
+            var response = await http.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+        
+            var content = await response.Content.ReadAsStringAsync();
+            var json = JsonDocument.Parse(content);
+            var items = json.RootElement.GetProperty("value").EnumerateArray();
+        
+            AnsiConsole.MarkupLine($"{items.Count()} item(s) found");
+
+            foreach (var item in items)
+            {
+                var fields = item.GetProperty("fields");
+                var filePath = Path.Combine(Directory.GetCurrentDirectory(), $"{fields.GetProperty("Path").GetString()}.resx");
+                var baseFile = new FileInfo(filePath);
+                var baseName = Path.GetFileNameWithoutExtension(baseFile.Name);
+            
+                var key = fields.GetProperty("Title").GetString();
+            
+                var row = new ResourceRow(baseFile, baseName, key!);
+
+                foreach (var prop in fields.EnumerateObject())
+                {
+                    if (!prop.Name.StartsWith(LangPrefix)) continue;
+                    
+                    var cultureName = prop.Name.Replace(LangPrefix, string.Empty);
+                    
+                    if (cultureName.Equals("default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var value = prop.Value.GetString();
+                        row.Values.Add(CultureInfo.InvariantCulture, value!);
+                        continue;
+                    }
+
+                    if (TryGetCultureInfo(cultureName, out var culture))
+                    {
+                        var value = prop.Value.GetString();
+
+                        if (!string.IsNullOrEmpty(value))
+                        {
+                            row.Values.Add(culture, value);
+                        }
+                    }
+                }
+            
+                yield return row;
+            }
+            
+            url = json.RootElement.TryGetProperty("@odata.nextLink", out var nextLink) ? nextLink.GetString() : null;
+            
+        } while (!string.IsNullOrEmpty(url));
     }
 }
