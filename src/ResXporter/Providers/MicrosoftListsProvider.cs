@@ -44,14 +44,14 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
         var accessToken = await GetAccessToken(clientId, clientSecret, tenantId);
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        
+        var existingItems = await LoadExistingItems(siteId, listId);
 
         var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
 
         await Parallel.ForEachAsync(rows.OrderBy(c => c.Key), options, async (row, _) =>
         {
-            var existingItem = await FindExistingItem(siteId, listId, row.Key);
-
-            if (existingItem is null)
+            if (!existingItems.TryGetValue(row.Key, out var existingItem))
             {
                 await CreateNewListItem(siteId, listId, row);
             }
@@ -63,7 +63,6 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                 if (lastModified > lastSyncedAt)
                 {
                     AnsiConsole.MarkupLine($"{row.Key} [yellow]skipped[/]");
-
                     return;
                 }
                 
@@ -72,33 +71,45 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         });
     }
     
-    private async Task<Dictionary<string, string>?> FindExistingItem(string siteId, string listId, string key)
+    private async Task<Dictionary<string, Dictionary<string, string>>> LoadExistingItems(string siteId, string listId)
     {
-        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items?" +
-                  "$expand=fields($select=Title,LastSyncedAt)" +
-                  "&$select=id,lastModifiedDateTime" +
-                  $"&$filter=fields/Title eq '{key}'";
+        var result = new Dictionary<string, Dictionary<string, string>>();
 
-        using var response = await http.GetAsync(url);
-        
-        if (!response.IsSuccessStatusCode) return null;
-        
-        var content = await response.Content.ReadAsStringAsync();
-        var json = JsonDocument.Parse(content);
-        var items = json.RootElement.GetProperty("value").EnumerateArray().ToArray();
+        var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items?$expand=fields";
 
-        if (items.Length == 0) return null;
-        
-        return new Dictionary<string, string>
+        do
         {
-            ["Id"] = items[0].GetProperty("id").GetString() ?? string.Empty,
-            ["Modified"] = items[0].GetProperty("lastModifiedDateTime").GetString() ?? string.Empty,
-            ["LastSyncedAt"] = items[0].GetProperty("fields").GetProperty("LastSyncedAt").GetString() ?? string.Empty,
-            ["ResourceKey"] = items[0].GetProperty("fields").GetProperty("Title").GetString() ?? string.Empty,
-            ["Etag"] = items[0].GetProperty("@odata.etag").GetString() ?? string.Empty
-        };
+            using var response = await http.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            
+            var content = await response.Content.ReadAsStringAsync();
+            var json = JsonDocument.Parse(content);
+            var items = json.RootElement.GetProperty("value").EnumerateArray().ToArray();
+
+            foreach (var item in items)
+            {
+                var fields = item.GetProperty("fields");
+                var key = fields.GetProperty("Title").GetString();
+                
+                var values = new Dictionary<string, string>
+                {
+                    ["Id"] = item.GetProperty("id").GetString() ?? string.Empty,
+                    ["Modified"] = item.GetProperty("lastModifiedDateTime").GetString() ?? string.Empty,
+                    ["LastSyncedAt"] = fields.GetProperty("LastSyncedAt").GetString() ?? string.Empty,
+                    ["ResourceKey"] = key!,
+                    ["Etag"] = item.GetProperty("@odata.etag").GetString() ?? string.Empty
+                };
+                
+                result.Add(key!, values);
+            }
+            
+            url = json.RootElement.TryGetProperty("@odata.nextLink", out var nextLink) ? nextLink.GetString() : null;
+
+        } while (!string.IsNullOrEmpty(url));
+
+        return result;
     }
-    
+
     private async Task CreateNewListItem(string siteId, string listId, ResourceRow row)
     {
         var relativePath = Path.GetRelativePath(Directory.GetCurrentDirectory(), row.BaseFile.FullName);
