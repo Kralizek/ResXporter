@@ -86,34 +86,33 @@ public class ImportCommand(IServiceProvider serviceProvider) : AsyncCommand<Impo
                 
                 AnsiConsole.MarkupLine($"[yellow]Created missing file: {filePath}[/]");
             }
-            
-            var existingEntries = LoadExistingEntries(file);
-            var changed = false;
-            
-            using var resxWriter = new ResXResourceWriter(file.FullName);
-            var addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var (key, value) in existingEntries)
-            {
-                resxWriter.AddResource(key, value);
-            }
+            var existingEntries = LoadExistingEntries(file);
+            var finalEntries = new Dictionary<string, string>(existingEntries, StringComparer.OrdinalIgnoreCase);
+            var changed = false;
 
             foreach (var (key, value) in translations)
             {
-                if (existingEntries.TryGetValue(key, out var existValue))
+                if (finalEntries.TryGetValue(key, out var existingValue))
                 {
-                    if (settings.UpdateExisting && existValue != value)
+                    if (settings.UpdateExisting && existingValue != value)
                     {
-                        resxWriter.AddResource(key, value);
-                        addedKeys.Add(key);
+                        finalEntries[key] = value; // ✅ replace
                         changed = true;
                     }
                 }
-                else if (!addedKeys.Contains(key))
+                else
                 {
-                    resxWriter.AddResource(key, value);
+                    finalEntries[key] = value; // ✅ add
                     changed = true;
                 }
+            }
+
+            using var resxWriter = new ResXResourceWriter(file.FullName);
+
+            foreach (var (key, value) in finalEntries)
+            {
+                resxWriter.AddResource(key, value);
             }
             
             resxWriter.Generate();
@@ -175,7 +174,7 @@ public class ImportCommand(IServiceProvider serviceProvider) : AsyncCommand<Impo
         
             foreach (DictionaryEntry entry in reader)
             {
-                existingEntries.Add(entry.Key.ToString()!, entry.Value?.ToString() ?? String.Empty);
+                existingEntries[entry.Key.ToString()!] = entry.Value?.ToString() ?? String.Empty;
             }
         }
         catch (Exception ex)
