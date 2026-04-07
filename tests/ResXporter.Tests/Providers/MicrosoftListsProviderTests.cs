@@ -13,7 +13,7 @@ public class RequiresUpdateTests
 {
     private static ResourceRow MakeRow(string key, params (CultureInfo culture, string value)[] values)
     {
-        var row = new ResourceRow(new FileInfo("/tmp/Test.resx"), "Test", key);
+        var row = new ResourceRow(new FileInfo(Path.Combine(Path.GetTempPath(), "Test.resx")), "Test", key);
         foreach (var (culture, value) in values)
         {
             row.Values.Add(culture, value);
@@ -167,7 +167,7 @@ public class ExportAsyncTests
 
     private static ResourceRow MakeRow(string key, params (CultureInfo culture, string value)[] values)
     {
-        var row = new ResourceRow(new FileInfo("/tmp/Resources.resx"), "Resources", key);
+        var row = new ResourceRow(new FileInfo(Path.Combine(Path.GetTempPath(), "Resources.resx")), "Resources", key);
         foreach (var (culture, value) in values)
         {
             row.Values.Add(culture, value);
