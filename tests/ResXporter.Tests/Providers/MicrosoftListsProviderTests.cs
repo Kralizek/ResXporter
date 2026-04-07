@@ -146,6 +146,19 @@ public class RequiresUpdateTests
 
         Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
+
+    [Test]
+    public void Returns_true_when_existing_has_language_field_not_in_row()
+    {
+        var existing = new Dictionary<string, string>
+        {
+            ["lang_x003a_default"] = "Hello",
+            ["lang_x003a_de-DE"] = "Hallo"
+        };
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
+
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
+    }
 }
 
 public class ExportAsyncTests
@@ -457,6 +470,42 @@ public class ExportAsyncTests
 
         var patchRequest = handler.Requests.Single(r => r.Method == "PATCH");
         Assert.That(patchRequest.Uri, Does.Contain("/items/abc123/fields"));
+    }
+
+    [Test]
+    public async Task Sends_patch_and_clears_stale_language_field_when_translation_removed()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["lang_x003a_de-DE"] = "Hallo"
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+        handler.SetupPatchFieldsResponse(SiteId, ListId, "item1");
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        // Incoming row no longer contains de-DE
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "Hello"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Has.Count.EqualTo(1));
+        var patchBody = patchRequests[0].Body;
+        Assert.That(patchBody, Does.Contain("lang_x003a_de-DE"));
+        Assert.That(patchBody, Does.Contain("\"lang_x003a_de-DE\":\"\""));
     }
 }
 

@@ -128,19 +128,21 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
     {
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture)
-                ? $"{LangPrefix}default"
-                : $"{LangPrefix}{culture.Name}";
-
-            existingFields.TryGetValue(cultureKey, out var existingValue);
+            existingFields.TryGetValue(GetCultureKey(culture), out var existingValue);
 
             if (!NormalizeValue(existingValue).Equals(NormalizeValue(value), StringComparison.Ordinal))
             {
                 return true;
             }
         }
-        return false;
+
+        var incomingKeys = row.Values.Keys.Select(GetCultureKey).ToHashSet();
+
+        return existingFields.Keys.Any(k => k.StartsWith(LangPrefix) && !incomingKeys.Contains(k));
     }
+
+    private static string GetCultureKey(CultureInfo culture)
+        => culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
 
     private static string NormalizeValue(string? value)
         => (value ?? string.Empty).Replace("\r\n", "\n");
@@ -163,8 +165,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
-            requestBody.fields.Add(cultureKey, value);
+            requestBody.fields.Add(GetCultureKey(culture), value);
         }
         
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items";
@@ -197,8 +198,15 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
-            requestBody.fields.Add(cultureKey, value);
+            requestBody.fields.Add(GetCultureKey(culture), value);
+        }
+
+        var incomingKeys = row.Values.Keys.Select(GetCultureKey).ToHashSet();
+
+        foreach (var key in item.Keys)
+        {
+            if (key.StartsWith(LangPrefix) && !incomingKeys.Contains(key))
+                requestBody.fields.Add(key, string.Empty);
         }
         
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items/{item["Id"]}/fields";
