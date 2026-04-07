@@ -22,20 +22,18 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
-      
-      - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v3.1.11
-        with:
-          versionSpec: '5.x'
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Determine version
-        id: gitversion
-        uses: gittools/actions/gitversion/execute@v3.1.11
-        with:
-          useConfigFile: true
+        id: minver
+        run: |
+          dotnet tool install --global minver-cli --version 7.0.0
+          VERSION=$(minver)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
     outputs:
-      version: ${{ steps.gitversion.outputs.semVer }}
+      version: ${{ steps.minver.outputs.version }}
 
   release:
     name: Publish executable
@@ -44,13 +42,18 @@ jobs:
     strategy:
       matrix:
         runtime: [win-x64, linux-x64]
+        tfm: [net9.0, net10.0]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Install dependencies
         run: dotnet restore
@@ -60,21 +63,21 @@ jobs:
 
       - name: Publish
         id: publish
-        run: dotnet publish ./src/ResXporter/ResXporter.csproj --configuration Release --runtime ${{ matrix.runtime }} --output ./outputs/publish/${{ matrix.runtime }} --property:Version=${{ needs.prepare.outputs.version }} --property:DebugType=None --property:DebugSymbols=False --property:PublishSingleFile=True --property:SelfContained=True --property:AssemblyName=resxporter
+        run: dotnet publish ./src/ResXporter/ResXporter.csproj --configuration Release --runtime ${{ matrix.runtime }} --framework ${{ matrix.tfm }} --output ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }} --property:Version=${{ needs.prepare.outputs.version }} --property:DebugType=None --property:DebugSymbols=False --property:PublishSingleFile=True --property:SelfContained=True --property:AssemblyName=resxporter
 
       - name: Archive
         id: zip
         uses: thedoctor0/zip-release@0.7.1
         with:
           type: 'zip'
-          directory: './outputs/publish/${{ matrix.runtime }}'
-          filename: '../../resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
+          directory: './outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}'
+          filename: '../../../resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
 
       - name: Add to release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./outputs/resxporter-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip
+            ./outputs/resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip
 
   pack:
     name: Publish as .NET tool
@@ -82,11 +85,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Install dependencies
         run: dotnet restore

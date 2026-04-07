@@ -51,7 +51,7 @@ public class ExportCommand(IServiceProvider serviceProvider) : AsyncCommand<Expo
                 return ValidationResult.Error("Path does not exist.");
             }
 
-            if (Files is not null or [])
+            if (Files is not (null or []))
             {
                 foreach (var file in Files)
                 {
