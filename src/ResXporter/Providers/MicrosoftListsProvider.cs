@@ -48,6 +48,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         var existingItems = await LoadExistingItems(siteId, listId);
 
         var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+        var skippedCount = 0;
 
         await Parallel.ForEachAsync(rows.OrderBy(c => c.Key), options, async (row, _) =>
         {
@@ -62,7 +63,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                 
                 if (lastModified > lastSyncedAt)
                 {
-                    AnsiConsole.MarkupLine($"{row.Key} [yellow]skipped[/]");
+                    Interlocked.Increment(ref skippedCount);
                     return;
                 }
 
@@ -75,6 +76,11 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                 await UpdateListItem(siteId, listId, existingItem, row);
             }
         });
+
+        if (skippedCount > 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{skippedCount} item(s) skipped because modified after last sync[/]");
+        }
     }
     
     private async Task<Dictionary<string, Dictionary<string, string>>> LoadExistingItems(string siteId, string listId)
