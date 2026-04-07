@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 
 using ResXporter.Providers;
-using Xunit;
+using NUnit.Framework;
 
 namespace ResXporter.Tests.Providers;
 
@@ -25,7 +25,7 @@ internal static class TestHelpers
 public class RequiresUpdateTests
 {
 
-    [Fact]
+    [Test]
     public void Returns_false_when_all_values_are_identical()
     {
         var existing = new Dictionary<string, string>
@@ -37,10 +37,10 @@ public class RequiresUpdateTests
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
 
-        Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
 
-    [Fact]
+    [Test]
     public void Returns_true_when_default_value_differs()
     {
         var existing = new Dictionary<string, string>
@@ -49,10 +49,10 @@ public class RequiresUpdateTests
         };
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello World"));
 
-        Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
     }
 
-    [Fact]
+    [Test]
     public void Returns_true_when_language_value_differs()
     {
         var existing = new Dictionary<string, string>
@@ -64,10 +64,10 @@ public class RequiresUpdateTests
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Au revoir"));
 
-        Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
     }
 
-    [Fact]
+    [Test]
     public void Returns_true_when_language_field_is_missing_from_existing()
     {
         var existing = new Dictionary<string, string>
@@ -78,10 +78,10 @@ public class RequiresUpdateTests
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("de-DE"), "Hallo"));
 
-        Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
     }
 
-    [Fact]
+    [Test]
     public void Returns_false_when_values_differ_only_in_crlf_vs_lf()
     {
         var existing = new Dictionary<string, string>
@@ -90,10 +90,10 @@ public class RequiresUpdateTests
         };
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2"));
 
-        Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
 
-    [Fact]
+    [Test]
     public void Returns_true_when_values_differ_by_trailing_whitespace()
     {
         var existing = new Dictionary<string, string>
@@ -102,10 +102,10 @@ public class RequiresUpdateTests
         };
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
 
-        Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
     }
 
-    [Fact]
+    [Test]
     public void Returns_false_when_existing_is_empty_and_row_value_is_empty()
     {
         var existing = new Dictionary<string, string>
@@ -114,28 +114,28 @@ public class RequiresUpdateTests
         };
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, ""));
 
-        Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
 
-    [Fact]
+    [Test]
     public void Returns_false_when_existing_field_is_absent_and_row_value_is_empty()
     {
         var existing = new Dictionary<string, string>();
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, ""));
 
-        Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
 
-    [Fact]
+    [Test]
     public void Returns_true_when_existing_is_null_equivalent_but_row_has_value()
     {
         var existing = new Dictionary<string, string>();
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
 
-        Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.True);
     }
 
-    [Fact]
+    [Test]
     public void Returns_false_for_multiline_values_with_only_crlf_difference()
     {
         var existing = new Dictionary<string, string>
@@ -144,7 +144,7 @@ public class RequiresUpdateTests
         };
         var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2\nLine3"));
 
-        Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
+        Assert.That(MicrosoftListsProvider.RequiresUpdate(existing, row), Is.False);
     }
 }
 
@@ -198,7 +198,7 @@ public class ExportAsyncTests
         };
     }
 
-    [Fact]
+    [Test]
     public async Task Creates_new_item_when_key_is_not_in_existing_list()
     {
         var handler = new FakeHttpMessageHandler();
@@ -217,11 +217,11 @@ public class ExportAsyncTests
             .Where(r => r.Method == "POST" && r.Uri.Contains($"/lists/{ListId}/items"))
             .ToList();
 
-        Assert.Single(postRequests);
-        Assert.Contains("\"NewKey\"", postRequests[0].Body ?? "");
+        Assert.That(postRequests, Has.Count.EqualTo(1));
+        Assert.That(postRequests[0].Body, Does.Contain("\"NewKey\""));
     }
 
-    [Fact]
+    [Test]
     public async Task Does_not_send_patch_when_existing_item_values_are_unchanged()
     {
         var handler = new FakeHttpMessageHandler();
@@ -254,10 +254,10 @@ public class ExportAsyncTests
             .Where(r => r.Method == "PATCH")
             .ToList();
 
-        Assert.Empty(patchRequests);
+        Assert.That(patchRequests, Is.Empty);
     }
 
-    [Fact]
+    [Test]
     public async Task Sends_patch_when_existing_item_values_differ()
     {
         var handler = new FakeHttpMessageHandler();
@@ -288,11 +288,11 @@ public class ExportAsyncTests
             .Where(r => r.Method == "PATCH")
             .ToList();
 
-        Assert.Single(patchRequests);
-        Assert.Contains("New Hello", patchRequests[0].Body ?? "");
+        Assert.That(patchRequests, Has.Count.EqualTo(1));
+        Assert.That(patchRequests[0].Body, Does.Contain("New Hello"));
     }
 
-    [Fact]
+    [Test]
     public async Task Patch_payload_contains_updated_language_fields()
     {
         var handler = new FakeHttpMessageHandler();
@@ -323,13 +323,13 @@ public class ExportAsyncTests
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
         var patchBody = handler.Requests.Single(r => r.Method == "PATCH").Body;
-        Assert.NotNull(patchBody);
-        Assert.Contains("lang_x003a_default", patchBody);
-        Assert.Contains("New Hello", patchBody);
-        Assert.Contains("LastSyncedAt", patchBody);
+        Assert.That(patchBody, Is.Not.Null);
+        Assert.That(patchBody, Does.Contain("lang_x003a_default"));
+        Assert.That(patchBody, Does.Contain("New Hello"));
+        Assert.That(patchBody, Does.Contain("LastSyncedAt"));
     }
 
-    [Fact]
+    [Test]
     public async Task Skips_item_when_manually_modified_after_last_sync()
     {
         var handler = new FakeHttpMessageHandler();
@@ -359,10 +359,10 @@ public class ExportAsyncTests
             .Where(r => r.Method == "PATCH")
             .ToList();
 
-        Assert.Empty(patchRequests);
+        Assert.That(patchRequests, Is.Empty);
     }
 
-    [Fact]
+    [Test]
     public async Task Does_not_send_patch_when_values_differ_only_by_crlf()
     {
         var handler = new FakeHttpMessageHandler();
@@ -392,10 +392,10 @@ public class ExportAsyncTests
             .Where(r => r.Method == "PATCH")
             .ToList();
 
-        Assert.Empty(patchRequests);
+        Assert.That(patchRequests, Is.Empty);
     }
 
-    [Fact]
+    [Test]
     public async Task Does_not_update_when_updateExistingItems_is_false()
     {
         var handler = new FakeHttpMessageHandler();
@@ -425,10 +425,10 @@ public class ExportAsyncTests
             .Where(r => r.Method == "PATCH")
             .ToList();
 
-        Assert.Empty(patchRequests);
+        Assert.That(patchRequests, Is.Empty);
     }
 
-    [Fact]
+    [Test]
     public async Task Patch_is_sent_to_correct_item_id_url()
     {
         var handler = new FakeHttpMessageHandler();
@@ -456,7 +456,7 @@ public class ExportAsyncTests
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
         var patchRequest = handler.Requests.Single(r => r.Method == "PATCH");
-        Assert.Contains($"/items/abc123/fields", patchRequest.Uri);
+        Assert.That(patchRequest.Uri, Does.Contain("/items/abc123/fields"));
     }
 }
 
