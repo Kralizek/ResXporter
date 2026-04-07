@@ -9,17 +9,21 @@ using Xunit;
 
 namespace ResXporter.Tests.Providers;
 
-public class RequiresUpdateTests
+internal static class TestHelpers
 {
-    private static ResourceRow MakeRow(string key, params (CultureInfo culture, string value)[] values)
+    public static ResourceRow MakeRow(string key, params (CultureInfo culture, string value)[] values)
     {
-        var row = new ResourceRow(new FileInfo(Path.Combine(Path.GetTempPath(), "Test.resx")), "Test", key);
+        var row = new ResourceRow(new FileInfo(Path.Combine(Path.GetTempPath(), "Resources.resx")), "Resources", key);
         foreach (var (culture, value) in values)
         {
             row.Values.Add(culture, value);
         }
         return row;
     }
+}
+
+public class RequiresUpdateTests
+{
 
     [Fact]
     public void Returns_false_when_all_values_are_identical()
@@ -29,7 +33,7 @@ public class RequiresUpdateTests
             ["lang_x003a_default"] = "Hello",
             ["lang_x003a_fr-FR"] = "Bonjour"
         };
-        var row = MakeRow("Key",
+        var row = TestHelpers.MakeRow("Key",
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
 
@@ -43,7 +47,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = "Hello",
         };
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, "Hello World"));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello World"));
 
         Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -56,7 +60,7 @@ public class RequiresUpdateTests
             ["lang_x003a_default"] = "Hello",
             ["lang_x003a_fr-FR"] = "Bonjour"
         };
-        var row = MakeRow("Key",
+        var row = TestHelpers.MakeRow("Key",
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Au revoir"));
 
@@ -70,7 +74,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = "Hello"
         };
-        var row = MakeRow("Key",
+        var row = TestHelpers.MakeRow("Key",
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("de-DE"), "Hallo"));
 
@@ -84,7 +88,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = "Line1\r\nLine2"
         };
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2"));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2"));
 
         Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -96,7 +100,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = "Hello "
         };
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
 
         Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -108,7 +112,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = ""
         };
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, ""));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, ""));
 
         Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -117,7 +121,7 @@ public class RequiresUpdateTests
     public void Returns_false_when_existing_field_is_absent_and_row_value_is_empty()
     {
         var existing = new Dictionary<string, string>();
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, ""));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, ""));
 
         Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -126,7 +130,7 @@ public class RequiresUpdateTests
     public void Returns_true_when_existing_is_null_equivalent_but_row_has_value()
     {
         var existing = new Dictionary<string, string>();
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Hello"));
 
         Assert.True(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -138,7 +142,7 @@ public class RequiresUpdateTests
         {
             ["lang_x003a_default"] = "Line1\r\nLine2\r\nLine3"
         };
-        var row = MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2\nLine3"));
+        var row = TestHelpers.MakeRow("Key", (CultureInfo.InvariantCulture, "Line1\nLine2\nLine3"));
 
         Assert.False(MicrosoftListsProvider.RequiresUpdate(existing, row));
     }
@@ -166,14 +170,7 @@ public class ExportAsyncTests
     };
 
     private static ResourceRow MakeRow(string key, params (CultureInfo culture, string value)[] values)
-    {
-        var row = new ResourceRow(new FileInfo(Path.Combine(Path.GetTempPath(), "Resources.resx")), "Resources", key);
-        foreach (var (culture, value) in values)
-        {
-            row.Values.Add(culture, value);
-        }
-        return row;
-    }
+        => TestHelpers.MakeRow(key, values);
 
     private static string ListItemsResponse(IEnumerable<Dictionary<string, object>> items) =>
         JsonSerializer.Serialize(new Dictionary<string, object> { ["value"] = items.ToArray() });
@@ -212,7 +209,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("NewKey", (CultureInfo.InvariantCulture, "Hello"));
+        var row = TestHelpers.MakeRow("NewKey", (CultureInfo.InvariantCulture, "Hello"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: false));
 
@@ -247,7 +244,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1",
+        var row = TestHelpers.MakeRow("Key1",
             (CultureInfo.InvariantCulture, "Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
 
@@ -283,7 +280,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
@@ -319,7 +316,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1",
+        var row = TestHelpers.MakeRow("Key1",
             (CultureInfo.InvariantCulture, "New Hello"),
             (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
 
@@ -354,7 +351,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
@@ -387,7 +384,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1", (CultureInfo.InvariantCulture, "Line1\nLine2"));
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "Line1\nLine2"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
@@ -420,7 +417,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "New Hello"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: false));
 
@@ -454,7 +451,7 @@ public class ExportAsyncTests
         var http = new HttpClient(handler);
         var provider = new MicrosoftListsProvider(http);
 
-        var row = MakeRow("Key1", (CultureInfo.InvariantCulture, "New Value"));
+        var row = TestHelpers.MakeRow("Key1", (CultureInfo.InvariantCulture, "New Value"));
 
         await provider.ExportAsync([row], MakeSettings(updateExisting: true));
 
