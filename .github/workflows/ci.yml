@@ -25,3 +25,6 @@ jobs:
 
       - name: Verify
         run: dotnet build -warnaserror
+
+      - name: Test
+        run: dotnet test --no-build

@@ -48,6 +48,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         var existingItems = await LoadExistingItems(siteId, listId);
 
         var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+        var skippedCount = 0;
 
         await Parallel.ForEachAsync(rows.OrderBy(c => c.Key), options, async (row, _) =>
         {
@@ -62,13 +63,24 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                 
                 if (lastModified > lastSyncedAt)
                 {
-                    AnsiConsole.MarkupLine($"{row.Key} [yellow]skipped[/]");
+                    Interlocked.Increment(ref skippedCount);
                     return;
                 }
-                
+
+                if (!RequiresUpdate(existingItem, row))
+                {
+                    AnsiConsole.MarkupLine($"{row.Key} [grey]unchanged[/]");
+                    return;
+                }
+
                 await UpdateListItem(siteId, listId, existingItem, row);
             }
         });
+
+        if (skippedCount > 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{skippedCount} item(s) skipped because modified after last sync[/]");
+        }
     }
     
     private async Task<Dictionary<string, Dictionary<string, string>>> LoadExistingItems(string siteId, string listId)
@@ -99,7 +111,15 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                     ["ResourceKey"] = key!,
                     ["Etag"] = item.GetProperty("@odata.etag").GetString() ?? string.Empty
                 };
-                
+
+                foreach (var prop in fields.EnumerateObject())
+                {
+                    if (prop.Name.StartsWith(LangPrefix))
+                    {
+                        values[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                    }
+                }
+
                 result.Add(key!, values);
             }
             
@@ -109,6 +129,29 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
         return result;
     }
+
+    internal static bool RequiresUpdate(Dictionary<string, string> existingFields, ResourceRow row)
+    {
+        foreach (var (culture, value) in row.Values)
+        {
+            existingFields.TryGetValue(GetCultureKey(culture), out var existingValue);
+
+            if (!NormalizeValue(existingValue).Equals(NormalizeValue(value), StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        var incomingKeys = row.Values.Keys.Select(GetCultureKey).ToHashSet();
+
+        return existingFields.Keys.Any(k => k.StartsWith(LangPrefix) && !incomingKeys.Contains(k));
+    }
+
+    private static string GetCultureKey(CultureInfo culture)
+        => culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
+
+    private static string NormalizeValue(string? value)
+        => (value ?? string.Empty).Replace("\r\n", "\n");
 
     private async Task CreateNewListItem(string siteId, string listId, ResourceRow row)
     {
@@ -128,8 +171,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
-            requestBody.fields.Add(cultureKey, value);
+            requestBody.fields.Add(GetCultureKey(culture), value);
         }
         
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items";
@@ -162,8 +204,15 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         
         foreach (var (culture, value) in row.Values)
         {
-            var cultureKey = culture.Equals(CultureInfo.InvariantCulture) ? $"{LangPrefix}default" : $"{LangPrefix}{culture.Name}";
-            requestBody.fields.Add(cultureKey, value);
+            requestBody.fields.Add(GetCultureKey(culture), value);
+        }
+
+        var incomingKeys = row.Values.Keys.Select(GetCultureKey).ToHashSet();
+
+        foreach (var key in item.Keys)
+        {
+            if (key.StartsWith(LangPrefix) && !incomingKeys.Contains(key))
+                requestBody.fields.Add(key, string.Empty);
         }
         
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items/{item["Id"]}/fields";
