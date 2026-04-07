@@ -65,7 +65,13 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                     AnsiConsole.MarkupLine($"{row.Key} [yellow]skipped[/]");
                     return;
                 }
-                
+
+                if (!RequiresUpdate(existingItem, row))
+                {
+                    AnsiConsole.MarkupLine($"{row.Key} [grey]unchanged[/]");
+                    return;
+                }
+
                 await UpdateListItem(siteId, listId, existingItem, row);
             }
         });
@@ -99,7 +105,15 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
                     ["ResourceKey"] = key!,
                     ["Etag"] = item.GetProperty("@odata.etag").GetString() ?? string.Empty
                 };
-                
+
+                foreach (var prop in fields.EnumerateObject())
+                {
+                    if (prop.Name.StartsWith(LangPrefix))
+                    {
+                        values[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                    }
+                }
+
                 result.Add(key!, values);
             }
             
@@ -109,6 +123,27 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
         return result;
     }
+
+    internal static bool RequiresUpdate(Dictionary<string, string> existingFields, ResourceRow row)
+    {
+        foreach (var (culture, value) in row.Values)
+        {
+            var cultureKey = culture.Equals(CultureInfo.InvariantCulture)
+                ? $"{LangPrefix}default"
+                : $"{LangPrefix}{culture.Name}";
+
+            existingFields.TryGetValue(cultureKey, out var existingValue);
+
+            if (!NormalizeValue(existingValue).Equals(NormalizeValue(value), StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string NormalizeValue(string? value)
+        => (value ?? string.Empty).Replace("\r\n", "\n");
 
     private async Task CreateNewListItem(string siteId, string listId, ResourceRow row)
     {
