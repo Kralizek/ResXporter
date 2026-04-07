@@ -1,0 +1,16 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/files/">
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/ResXporter/ResXporter.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ResXporter.Tests/ResXporter.Tests.csproj" />
+  </Folder>
+</Solution>
