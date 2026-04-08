@@ -8,12 +8,17 @@ on:
 permissions:
   packages: write
   contents: write
+  id-token: write
 
 jobs:
-
-  prepare:
-    name: Preparation
+  release-executables:
+    name: Publish executable
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, linux-x64]
+        tfm: [net9.0, net10.0]
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,55 +36,48 @@ jobs:
         run: |
           dotnet tool install --global minver-cli --version 7.0.0
           VERSION=$(minver)
+
+          if [ -z "$VERSION" ]; then
+            echo "MinVer did not return a version."
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-    outputs:
-      version: ${{ steps.minver.outputs.version }}
 
-  release:
-    name: Publish executable
-    needs: prepare
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        runtime: [win-x64, linux-x64]
-        tfm: [net9.0, net10.0]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: |
-            9.0.x
-            10.0.x
-
-      - name: Install dependencies
+      - name: Restore
         run: dotnet restore
 
       - name: Publish
-        id: publish
-        run: dotnet publish ./src/ResXporter/ResXporter.csproj --configuration Release --runtime ${{ matrix.runtime }} --framework ${{ matrix.tfm }} --output ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }} --property:Version=${{ needs.prepare.outputs.version }} --property:DebugType=None --property:DebugSymbols=False --property:PublishSingleFile=True --property:SelfContained=True --property:AssemblyName=resxporter
+        run: >
+          dotnet publish ./src/ResXporter/ResXporter.csproj
+          --configuration Release
+          --no-restore
+          --runtime ${{ matrix.runtime }}
+          --framework ${{ matrix.tfm }}
+          --output ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}
+          --property:DebugType=None
+          --property:DebugSymbols=False
+          --property:PublishSingleFile=True
+          --property:SelfContained=True
+          --property:AssemblyName=resxporter
 
       - name: Archive
-        id: zip
         uses: thedoctor0/zip-release@0.7.1
         with:
-          type: 'zip'
-          directory: './outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}'
-          filename: '../../../resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip'
+          type: zip
+          directory: ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}
+          filename: ../../../resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
 
       - name: Add to release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./outputs/resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ needs.prepare.outputs.version }}.zip
+            ./outputs/resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
 
-  pack:
+  release-tool:
     name: Publish as .NET tool
-    needs: prepare
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,16 +89,26 @@ jobs:
           dotnet-version: |
             9.0.x
             10.0.x
+          source-url: https://nuget.pkg.github.com/Kralizek/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install dependencies
+      - name: Restore
         run: dotnet restore
 
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
       - name: Pack
-        id: pack
-        run: dotnet pack ./src/ResXporter/ResXporter.csproj --configuration Release --output ./outputs/packages --property:AssemblyName=resxporter --property:Version=${{ needs.prepare.outputs.version }}
+        run: >
+          dotnet pack ./src/ResXporter/ResXporter.csproj
+          --configuration Release
+          --no-build
+          --output ./outputs/packages
+          --property:AssemblyName=resxporter
+
+      - name: List packages
+        run: ls -la ./outputs/packages
 
       - name: Add to release
         uses: softprops/action-gh-release@v1
@@ -108,14 +116,20 @@ jobs:
           files: |
             ./outputs/packages/*.nupkg
 
-      - name: Push to NuGet
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_TOKEN }}
+      - name: Login to NuGet.org
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: Kralizek
+
+      - name: Push to NuGet.org
         run: |
-          dotnet nuget push ./outputs/packages/*.nupkg --api-key $NUGET_AUTH_TOKEN --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push ./outputs/packages/*.nupkg \
+            --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
+            --source https://www.nuget.org/api/v2/package \
+            --skip-duplicate
 
       - name: Push to GitHub Package Registry
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: | 
-          dotnet nuget push ./outputs/packages/*.nupkg --api-key $NUGET_AUTH_TOKEN --source https://nuget.pkg.github.com/Kralizek/index.json --skip-duplicate
+        run: |
+          dotnet nuget push ./outputs/packages/*.nupkg \
+            --skip-duplicate
