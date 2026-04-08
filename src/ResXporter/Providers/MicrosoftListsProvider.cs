@@ -36,10 +36,12 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         var normalizedSource = NormalizeValue(sourceValue);
         var aligned = normalizedCurrent.Equals(normalizedSource, StringComparison.Ordinal);
 
+        var isCurrentEmpty = string.IsNullOrEmpty(normalizedCurrent);
+
         if (!IsValidHash(storedHash))
         {
             var updateKind = string.IsNullOrEmpty(storedHash) ? HashUpdateKind.Initialize : HashUpdateKind.Repair;
-            return aligned
+            return aligned || isCurrentEmpty
                 ? new(true, ComputeHash(normalizedSource), updateKind)
                 : new(false, null, HashUpdateKind.None);
         }
@@ -160,7 +162,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
                 foreach (var prop in fields.EnumerateObject())
                 {
-                    if (prop.Name.StartsWith(LangPrefix) || prop.Name.StartsWith(SyncHashPrefix))
+                    if (prop.Name.StartsWith(LangPrefix, StringComparison.Ordinal) || prop.Name.StartsWith(SyncHashPrefix, StringComparison.Ordinal))
                     {
                         values[prop.Name] = prop.Value.GetString() ?? string.Empty;
                     }
@@ -190,7 +192,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
         var incomingKeys = row.Values.Keys.Select(GetCultureKey).ToHashSet();
 
-        return existingFields.Keys.Any(k => k.StartsWith(LangPrefix) && !incomingKeys.Contains(k));
+        return existingFields.Keys.Any(k => k.StartsWith(LangPrefix, StringComparison.Ordinal) && !incomingKeys.Contains(k));
     }
 
     private static string GetCultureKey(CultureInfo culture)
@@ -281,7 +283,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
         foreach (var key in existingFields.Keys)
         {
-            if (key.StartsWith(LangPrefix) && !incomingLangKeys.Contains(key))
+            if (key.StartsWith(LangPrefix, StringComparison.Ordinal) && !incomingLangKeys.Contains(key))
             {
                 patch[key] = string.Empty;
                 patch[GetSyncHashKey(key)] = string.Empty;
@@ -368,7 +370,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
                 foreach (var prop in fields.EnumerateObject())
                 {
-                    if (!prop.Name.StartsWith(LangPrefix)) continue;
+                    if (!prop.Name.StartsWith(LangPrefix, StringComparison.Ordinal)) continue;
                     
                     var cultureName = prop.Name.Replace(LangPrefix, string.Empty);
                     

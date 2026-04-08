@@ -659,6 +659,16 @@ public class EvaluateLanguageFieldTests
     }
 
     [Test]
+    public void Empty_current_value_and_missing_hash_allows_safe_initialization()
+    {
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+    }
+
+    [Test]
     public void Invalid_hash_and_aligned_value_repairs_hash()
     {
         var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "Hello", storedHash: "not-a-valid-hash");
