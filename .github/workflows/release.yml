@@ -65,7 +65,7 @@ jobs:
           filename: ../../resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
 
       - name: Add to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           files: |
             ./outputs/resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
@@ -103,7 +103,7 @@ jobs:
         run: ls -la ./outputs/packages
 
       - name: Add to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           files: |
             ./outputs/packages/*.nupkg
