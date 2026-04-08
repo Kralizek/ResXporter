@@ -58,9 +58,6 @@ jobs:
       - name: Install dependencies
         run: dotnet restore
 
-      - name: Build
-        run: dotnet publish --configuration Release --no-restore
-
       - name: Publish
         id: publish
         run: dotnet publish ./src/ResXporter/ResXporter.csproj --configuration Release --runtime ${{ matrix.runtime }} --framework ${{ matrix.tfm }} --output ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }} --property:Version=${{ needs.prepare.outputs.version }} --property:DebugType=None --property:DebugSymbols=False --property:PublishSingleFile=True --property:SelfContained=True --property:AssemblyName=resxporter
