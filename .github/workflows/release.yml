@@ -20,12 +20,12 @@ jobs:
         tfm: [net9.0, net10.0]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             9.0.x
@@ -44,14 +44,10 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Restore
-        run: dotnet restore
-
       - name: Publish
         run: >
           dotnet publish ./src/ResXporter/ResXporter.csproj
           --configuration Release
-          --no-restore
           --runtime ${{ matrix.runtime }}
           --framework ${{ matrix.tfm }}
           --output ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}
@@ -62,14 +58,14 @@ jobs:
           --property:AssemblyName=resxporter
 
       - name: Archive
-        uses: thedoctor0/zip-release@0.7.1
+        uses: thedoctor0/zip-release@0.7.6
         with:
           type: zip
           directory: ./outputs/publish/${{ matrix.tfm }}-${{ matrix.runtime }}
           filename: ../../../resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
 
       - name: Add to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ./outputs/resxporter-${{ matrix.tfm }}-${{ matrix.runtime }}-${{ steps.minver.outputs.version }}.zip
@@ -79,12 +75,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             9.0.x
@@ -96,14 +92,10 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build --no-restore --configuration Release
-
       - name: Pack
         run: >
           dotnet pack ./src/ResXporter/ResXporter.csproj
           --configuration Release
-          --no-build
           --output ./outputs/packages
           --property:AssemblyName=resxporter
 
@@ -111,7 +103,7 @@ jobs:
         run: ls -la ./outputs/packages
 
       - name: Add to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ./outputs/packages/*.nupkg
@@ -132,4 +124,6 @@ jobs:
       - name: Push to GitHub Package Registry
         run: |
           dotnet nuget push ./outputs/packages/*.nupkg \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key "${{ github.token }}" \
             --skip-duplicate

@@ -4,6 +4,12 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerDefaultPreReleaseIdentifiers>preview</MinVerDefaultPreReleaseIdentifiers>
+    <MinVerAutoIncrement>minor</MinVerAutoIncrement>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/Kralizek/ResXporter</PackageProjectUrl>
