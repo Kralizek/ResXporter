@@ -659,13 +659,15 @@ public class EvaluateLanguageFieldTests
     }
 
     [Test]
-    public void Empty_current_value_and_missing_hash_allows_safe_initialization()
+    public void Empty_current_value_and_missing_hash_protects_field()
     {
+        // An empty current value with no stored hash could be an intentional translator clear.
+        // Without a hash to prove the field was never touched, we cannot safely overwrite it.
         var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null);
 
-        Assert.That(result.IsSafe, Is.True);
-        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
-        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
     }
 
     [Test]

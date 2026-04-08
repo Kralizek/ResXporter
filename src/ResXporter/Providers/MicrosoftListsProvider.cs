@@ -36,12 +36,10 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         var normalizedSource = NormalizeValue(sourceValue);
         var aligned = normalizedCurrent.Equals(normalizedSource, StringComparison.Ordinal);
 
-        var isCurrentEmpty = string.IsNullOrEmpty(normalizedCurrent);
-
         if (!IsValidHash(storedHash))
         {
             var updateKind = string.IsNullOrEmpty(storedHash) ? HashUpdateKind.Initialize : HashUpdateKind.Repair;
-            return aligned || isCurrentEmpty
+            return aligned
                 ? new(true, ComputeHash(normalizedSource), updateKind)
                 : new(false, null, HashUpdateKind.None);
         }
