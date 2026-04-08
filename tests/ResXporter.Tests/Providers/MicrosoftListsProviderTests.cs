@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -19,6 +20,13 @@ internal static class TestHelpers
             row.Values.Add(culture, value);
         }
         return row;
+    }
+
+    public static string HashOf(string value)
+    {
+        var normalized = value.Replace("\r\n", "\n");
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
 
@@ -169,7 +177,7 @@ public class ExportAsyncTests
     private const string SiteId = "test-site";
     private const string ListId = "test-list";
 
-    private static ExportSettings MakeSettings(bool updateExisting = false) => new()
+    private static ExportSettings MakeSettings(bool updateExisting = false, bool initializeMissingLanguages = false) => new()
     {
         Arguments = new Dictionary<string, string>
         {
@@ -178,7 +186,8 @@ public class ExportAsyncTests
             ["tenantId"] = TenantId,
             ["siteId"] = SiteId,
             ["listId"] = ListId,
-            ["updateExistingItems"] = updateExisting.ToString().ToLower()
+            ["updateExistingItems"] = updateExisting.ToString().ToLower(),
+            ["initializeMissingLanguages"] = initializeMissingLanguages.ToString().ToLower()
         }
     };
 
@@ -249,7 +258,9 @@ public class ExportAsyncTests
             MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
             {
                 ["lang_x003a_default"] = "Hello",
-                ["lang_x003a_fr-FR"] = "Bonjour"
+                ["lang_x003a_fr-FR"] = "Bonjour",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello"),
+                ["_sync_hash_lang_x003a_fr-FR"] = TestHelpers.HashOf("Bonjour")
             })
         };
         handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
@@ -284,7 +295,8 @@ public class ExportAsyncTests
         {
             MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
             {
-                ["lang_x003a_default"] = "Old Hello"
+                ["lang_x003a_default"] = "Old Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Old Hello")
             })
         };
         handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
@@ -320,7 +332,9 @@ public class ExportAsyncTests
             MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
             {
                 ["lang_x003a_default"] = "Old Hello",
-                ["lang_x003a_fr-FR"] = "Bonjour"
+                ["lang_x003a_fr-FR"] = "Bonjour",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Old Hello"),
+                ["_sync_hash_lang_x003a_fr-FR"] = TestHelpers.HashOf("Bonjour")
             })
         };
         handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
@@ -389,7 +403,8 @@ public class ExportAsyncTests
         {
             MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
             {
-                ["lang_x003a_default"] = "Line1\r\nLine2"
+                ["lang_x003a_default"] = "Line1\r\nLine2",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Line1\r\nLine2")
             })
         };
         handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
@@ -455,7 +470,8 @@ public class ExportAsyncTests
         {
             MakeListItem("abc123", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
             {
-                ["lang_x003a_default"] = "Old Value"
+                ["lang_x003a_default"] = "Old Value",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Old Value")
             })
         };
         handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
@@ -506,6 +522,353 @@ public class ExportAsyncTests
         var patchBody = patchRequests[0].Body;
         Assert.That(patchBody, Does.Contain("lang_x003a_de-DE"));
         Assert.That(patchBody, Does.Contain("\"lang_x003a_de-DE\":\"\""));
+    }
+
+    [Test]
+    public async Task Mixed_row_protects_manually_changed_language_and_updates_safe_language()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // lang_x003a_default has no hash and a different value → will be protected
+        // lang_x003a_fr-FR has a valid hash matching current value and a different source value → safe to update
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "ManualEdit",
+                ["lang_x003a_fr-FR"] = "Bonjour",
+                ["_sync_hash_lang_x003a_fr-FR"] = TestHelpers.HashOf("Bonjour")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+        handler.SetupPatchFieldsResponse(SiteId, ListId, "item1");
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "SourceDefault"),
+            (CultureInfo.GetCultureInfo("fr-FR"), "Au revoir"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Has.Count.EqualTo(1));
+        var patchBody = patchRequests[0].Body!;
+
+        // fr-FR is safe → included with new value
+        Assert.That(patchBody, Does.Contain("lang_x003a_fr-FR"));
+        Assert.That(patchBody, Does.Contain("Au revoir"));
+
+        // default is protected → not overwritten
+        Assert.That(patchBody, Does.Not.Contain("SourceDefault"));
+        Assert.That(patchBody, Does.Not.Contain("ManualEdit"));
+    }
+
+    [Test]
+    public async Task Creates_new_item_with_hash_fields()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse([]));
+        handler.SetupCreateItemResponse(SiteId, ListId);
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("NewKey",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: false));
+
+        var postBody = handler.Requests
+            .Single(r => r.Method == "POST" && r.Uri.Contains($"/lists/{ListId}/items")).Body!;
+
+        Assert.That(postBody, Does.Contain("lang_x003a_default"));
+        Assert.That(postBody, Does.Contain("Hello"));
+        Assert.That(postBody, Does.Contain("_sync_hash_lang_x003a_default"));
+        Assert.That(postBody, Does.Contain(TestHelpers.HashOf("Hello")));
+        Assert.That(postBody, Does.Contain("lang_x003a_fr-FR"));
+        Assert.That(postBody, Does.Contain("Bonjour"));
+        Assert.That(postBody, Does.Contain("_sync_hash_lang_x003a_fr-FR"));
+        Assert.That(postBody, Does.Contain(TestHelpers.HashOf("Bonjour")));
+    }
+
+    [Test]
+    public async Task Second_run_after_create_is_fully_idempotent()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Simulate what the item looks like after the first create (hashes already stored)
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello"),
+                ["lang_x003a_fr-FR"] = "Bonjour",
+                ["_sync_hash_lang_x003a_fr-FR"] = TestHelpers.HashOf("Bonjour")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Is.Empty);
+    }
+    [Test]
+    public async Task Does_not_backfill_missing_language_when_flag_is_disabled()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Existing item has no Italian value and no Italian hash
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("it-IT"), "Ciao"));
+
+        // Flag disabled: empty current + missing hash → protected, no PATCH for it-IT
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true, initializeMissingLanguages: false));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Is.Empty);
+    }
+
+    [Test]
+    public async Task Backfills_missing_language_when_flag_is_enabled()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Existing item has no Italian value and no Italian hash
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+        handler.SetupPatchFieldsResponse(SiteId, ListId, "item1");
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("it-IT"), "Ciao"));
+
+        // Flag enabled: empty current + missing hash + non-empty source → backfill it-IT
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true, initializeMissingLanguages: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Has.Count.EqualTo(1));
+        var patchBody = patchRequests[0].Body!;
+        Assert.That(patchBody, Does.Contain("lang_x003a_it-IT"));
+        Assert.That(patchBody, Does.Contain("Ciao"));
+        Assert.That(patchBody, Does.Contain("_sync_hash_lang_x003a_it-IT"));
+        Assert.That(patchBody, Does.Contain(TestHelpers.HashOf("Ciao")));
+    }
+}
+
+public class EvaluateLanguageFieldTests
+{
+    [Test]
+    public void Missing_hash_and_aligned_value_initializes_hash()
+    {
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "Hello", storedHash: null);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+    }
+
+    [Test]
+    public void Missing_hash_and_differing_value_protects_field()
+    {
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "World", storedHash: null);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Empty_current_value_and_missing_hash_protects_field()
+    {
+        // An empty current value with no stored hash could be an intentional translator clear.
+        // Without a hash to prove the field was never touched, we cannot safely overwrite it.
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    // initializeMissingLanguages flag tests
+
+    [Test]
+    public void Flag_disabled_empty_current_missing_hash_non_empty_source_protects()
+    {
+        // Default behavior: flag off → empty current + missing hash + non-empty source is still protected
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null, initializeMissingLanguages: false);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_missing_hash_non_empty_source_initializes()
+    {
+        // Opt-in backfill: empty current + missing hash + non-empty source → safe + initialize hash
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null, initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+    }
+
+    [Test]
+    public void Flag_enabled_non_empty_current_missing_hash_different_source_still_protected()
+    {
+        // Flag does not weaken protection when current list value already has content
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Existing", "NewValue", storedHash: null, initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_invalid_hash_non_empty_source_still_protected()
+    {
+        // Flag only applies to missing hash (null/empty), not to corrupt/invalid hash values
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: "not-a-valid-hash", initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_missing_hash_empty_source_initializes_hash()
+    {
+        // Both-empty case follows the normal aligned path (not the backfill path) because
+        // normalizedSource is also empty. The result is still safe + initialize, but via aligned logic.
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, null, storedHash: null, initializeMissingLanguages: true);
+
+        // aligned (both empty) → initialize hash via normal aligned branch
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+    }
+
+    [Test]
+    public void Invalid_hash_and_aligned_value_repairs_hash()
+    {
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "Hello", storedHash: "not-a-valid-hash");
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Repair));
+    }
+
+    [Test]
+    public void Invalid_hash_and_differing_value_protects_field()
+    {
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "World", storedHash: "not-a-valid-hash");
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Valid_hash_and_unchanged_field_is_safe_with_no_hash_update()
+    {
+        var hash = TestHelpers.HashOf("Hello");
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "Hello", storedHash: hash);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Valid_hash_and_manually_changed_conflicting_field_is_protected()
+    {
+        // Stored hash matches "OriginalValue", but current is "ManualEdit" (different from source "SourceValue")
+        var hash = TestHelpers.HashOf("OriginalValue");
+        var result = MicrosoftListsProvider.EvaluateLanguageField("ManualEdit", "SourceValue", storedHash: hash);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Valid_hash_and_reconciled_field_is_safe_and_hash_refreshed()
+    {
+        // Stored hash matches old value, but current value already matches source (manually reconciled)
+        var oldHash = TestHelpers.HashOf("OldValue");
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Hello", "Hello", storedHash: oldHash);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Refresh));
+    }
+
+    [Test]
+    public void Valid_hash_and_unchanged_value_allows_safe_update_to_new_source()
+    {
+        // Stored hash matches current, but source has a new value → safe to update
+        var hash = TestHelpers.HashOf("CurrentValue");
+        var result = MicrosoftListsProvider.EvaluateLanguageField("CurrentValue", "NewValue", storedHash: hash);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("NewValue")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Refresh));
     }
 }
 
