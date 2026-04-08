@@ -568,6 +568,72 @@ public class ExportAsyncTests
         Assert.That(patchBody, Does.Not.Contain("SourceDefault"));
         Assert.That(patchBody, Does.Not.Contain("ManualEdit"));
     }
+
+    [Test]
+    public async Task Creates_new_item_with_hash_fields()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse([]));
+        handler.SetupCreateItemResponse(SiteId, ListId);
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("NewKey",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: false));
+
+        var postBody = handler.Requests
+            .Single(r => r.Method == "POST" && r.Uri.Contains($"/lists/{ListId}/items")).Body!;
+
+        Assert.That(postBody, Does.Contain("lang_x003a_default"));
+        Assert.That(postBody, Does.Contain("Hello"));
+        Assert.That(postBody, Does.Contain("_sync_hash_lang_x003a_default"));
+        Assert.That(postBody, Does.Contain(TestHelpers.HashOf("Hello")));
+        Assert.That(postBody, Does.Contain("lang_x003a_fr-FR"));
+        Assert.That(postBody, Does.Contain("Bonjour"));
+        Assert.That(postBody, Does.Contain("_sync_hash_lang_x003a_fr-FR"));
+        Assert.That(postBody, Does.Contain(TestHelpers.HashOf("Bonjour")));
+    }
+
+    [Test]
+    public async Task Second_run_after_create_is_fully_idempotent()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Simulate what the item looks like after the first create (hashes already stored)
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello"),
+                ["lang_x003a_fr-FR"] = "Bonjour",
+                ["_sync_hash_lang_x003a_fr-FR"] = TestHelpers.HashOf("Bonjour")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("fr-FR"), "Bonjour"));
+
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Is.Empty);
+    }
 }
 
 public class EvaluateLanguageFieldTests

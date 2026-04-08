@@ -28,7 +28,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
     }
 
     private static bool IsValidHash(string? hash)
-        => hash is { Length: 64 } && hash.All(c => char.IsAsciiHexDigitLower(c));
+        => hash is { Length: 64 } && hash.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
 
     internal static LanguageFieldDecision EvaluateLanguageField(string? currentListValue, string? sourceValue, string? storedHash)
     {
@@ -217,7 +217,9 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         
         foreach (var (culture, value) in row.Values)
         {
-            requestBody.fields.Add(GetCultureKey(culture), value);
+            var langKey = GetCultureKey(culture);
+            requestBody.fields.Add(langKey, value);
+            requestBody.fields.Add(GetSyncHashKey(langKey), ComputeHash(NormalizeValue(value)));
         }
         
         var url = $"https://graph.microsoft.com/v1.0/sites/{siteId}/lists/{listId}/items";
@@ -259,7 +261,11 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
 
             if (decision.IsSafe && decision.HashToWrite is not null)
             {
-                patch[langKey] = value;
+                if (!NormalizeValue(currentListValue).Equals(NormalizeValue(value), StringComparison.Ordinal))
+                {
+                    patch[langKey] = value;
+                }
+
                 patch[GetSyncHashKey(langKey)] = decision.HashToWrite;
 
                 if (decision.HashUpdate == HashUpdateKind.Initialize)
