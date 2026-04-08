@@ -30,11 +30,26 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
     private static bool IsValidHash(string? hash)
         => hash is { Length: 64 } && hash.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
 
-    internal static LanguageFieldDecision EvaluateLanguageField(string? currentListValue, string? sourceValue, string? storedHash)
+    internal static LanguageFieldDecision EvaluateLanguageField(
+        string? currentListValue,
+        string? sourceValue,
+        string? storedHash,
+        bool initializeMissingLanguages = false)
     {
         var normalizedCurrent = NormalizeValue(currentListValue);
         var normalizedSource = NormalizeValue(sourceValue);
         var aligned = normalizedCurrent.Equals(normalizedSource, StringComparison.Ordinal);
+
+        // Opt-in backfill: empty current + missing (not invalid) hash + non-empty source → safe to initialize.
+        // Only activated when the caller explicitly opts in, and only for the missing-hash case (not invalid hash),
+        // so the protection rule for existing content or corrupt metadata is not weakened.
+        if (initializeMissingLanguages
+            && string.IsNullOrEmpty(normalizedCurrent)
+            && string.IsNullOrEmpty(storedHash)
+            && !string.IsNullOrEmpty(normalizedSource))
+        {
+            return new(true, ComputeHash(normalizedSource), HashUpdateKind.Initialize);
+        }
 
         if (!IsValidHash(storedHash))
         {
@@ -86,6 +101,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
         var siteId = settings.Arguments.GetRequiredValue("siteId");
         var listId = settings.Arguments.GetRequiredValue("listId");
         var updateExistingItems = settings.Arguments.GetBooleanValue("updateExistingItems");
+        var initializeMissingLanguages = settings.Arguments.GetBooleanValue("initializeMissingLanguages");
 
         var accessToken = await GetAccessToken(clientId, clientSecret, tenantId);
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -105,7 +121,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
             }
             else if (updateExistingItems)
             {
-                var patch = BuildSyncPatch(existingItem, row, out var rowInitialized, out var rowRepaired, out var rowProtected);
+                var patch = BuildSyncPatch(existingItem, row, initializeMissingLanguages, out var rowInitialized, out var rowRepaired, out var rowProtected);
 
                 Interlocked.Add(ref initializedHashCount, rowInitialized);
                 Interlocked.Add(ref repairedHashCount, rowRepaired);
@@ -238,6 +254,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
     private static Dictionary<string, object> BuildSyncPatch(
         Dictionary<string, string> existingFields,
         ResourceRow row,
+        bool initializeMissingLanguages,
         out int initializedCount,
         out int repairedCount,
         out int protectedCount)
@@ -257,7 +274,7 @@ public class MicrosoftListsProvider(HttpClient http) : IExporter, ILoader
             existingFields.TryGetValue(langKey, out var currentListValue);
             existingFields.TryGetValue(GetSyncHashKey(langKey), out var storedHash);
 
-            var decision = EvaluateLanguageField(currentListValue, value, storedHash);
+            var decision = EvaluateLanguageField(currentListValue, value, storedHash, initializeMissingLanguages);
 
             if (decision.IsSafe && decision.HashToWrite is not null)
             {

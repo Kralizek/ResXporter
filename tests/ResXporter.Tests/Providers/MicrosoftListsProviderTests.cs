@@ -177,7 +177,7 @@ public class ExportAsyncTests
     private const string SiteId = "test-site";
     private const string ListId = "test-list";
 
-    private static ExportSettings MakeSettings(bool updateExisting = false) => new()
+    private static ExportSettings MakeSettings(bool updateExisting = false, bool initializeMissingLanguages = false) => new()
     {
         Arguments = new Dictionary<string, string>
         {
@@ -186,7 +186,8 @@ public class ExportAsyncTests
             ["tenantId"] = TenantId,
             ["siteId"] = SiteId,
             ["listId"] = ListId,
-            ["updateExistingItems"] = updateExisting.ToString().ToLower()
+            ["updateExistingItems"] = updateExisting.ToString().ToLower(),
+            ["initializeMissingLanguages"] = initializeMissingLanguages.ToString().ToLower()
         }
     };
 
@@ -634,6 +635,81 @@ public class ExportAsyncTests
         var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
         Assert.That(patchRequests, Is.Empty);
     }
+    [Test]
+    public async Task Does_not_backfill_missing_language_when_flag_is_disabled()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Existing item has no Italian value and no Italian hash
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("it-IT"), "Ciao"));
+
+        // Flag disabled: empty current + missing hash → protected, no PATCH for it-IT
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true, initializeMissingLanguages: false));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Is.Empty);
+    }
+
+    [Test]
+    public async Task Backfills_missing_language_when_flag_is_enabled()
+    {
+        var handler = new FakeHttpMessageHandler();
+        handler.SetupTokenResponse(TenantId);
+
+        var now = DateTime.UtcNow;
+        var syncedAt = now.AddHours(-1).ToString("o");
+        var modifiedAt = now.AddHours(-2).ToString("o");
+
+        // Existing item has no Italian value and no Italian hash
+        var items = new[]
+        {
+            MakeListItem("item1", "Key1", modifiedAt, syncedAt, new Dictionary<string, string>
+            {
+                ["lang_x003a_default"] = "Hello",
+                ["_sync_hash_lang_x003a_default"] = TestHelpers.HashOf("Hello")
+            })
+        };
+        handler.SetupListItemsResponse(SiteId, ListId, ListItemsResponse(items));
+        handler.SetupPatchFieldsResponse(SiteId, ListId, "item1");
+
+        var http = new HttpClient(handler);
+        var provider = new MicrosoftListsProvider(http);
+
+        var row = TestHelpers.MakeRow("Key1",
+            (CultureInfo.InvariantCulture, "Hello"),
+            (CultureInfo.GetCultureInfo("it-IT"), "Ciao"));
+
+        // Flag enabled: empty current + missing hash + non-empty source → backfill it-IT
+        await provider.ExportAsync([row], MakeSettings(updateExisting: true, initializeMissingLanguages: true));
+
+        var patchRequests = handler.Requests.Where(r => r.Method == "PATCH").ToList();
+        Assert.That(patchRequests, Has.Count.EqualTo(1));
+        var patchBody = patchRequests[0].Body!;
+        Assert.That(patchBody, Does.Contain("lang_x003a_it-IT"));
+        Assert.That(patchBody, Does.Contain("Ciao"));
+        Assert.That(patchBody, Does.Contain("_sync_hash_lang_x003a_it-IT"));
+        Assert.That(patchBody, Does.Contain(TestHelpers.HashOf("Ciao")));
+    }
 }
 
 public class EvaluateLanguageFieldTests
@@ -668,6 +744,64 @@ public class EvaluateLanguageFieldTests
         Assert.That(result.IsSafe, Is.False);
         Assert.That(result.HashToWrite, Is.Null);
         Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    // initializeMissingLanguages flag tests
+
+    [Test]
+    public void Flag_disabled_empty_current_missing_hash_non_empty_source_protects()
+    {
+        // Default behavior: flag off → empty current + missing hash + non-empty source is still protected
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null, initializeMissingLanguages: false);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_missing_hash_non_empty_source_initializes()
+    {
+        // Opt-in backfill: empty current + missing hash + non-empty source → safe + initialize hash
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: null, initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashToWrite, Is.EqualTo(TestHelpers.HashOf("Hello")));
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
+    }
+
+    [Test]
+    public void Flag_enabled_non_empty_current_missing_hash_different_source_still_protected()
+    {
+        // Flag does not weaken protection when current list value already has content
+        var result = MicrosoftListsProvider.EvaluateLanguageField("Existing", "NewValue", storedHash: null, initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_invalid_hash_non_empty_source_still_protected()
+    {
+        // Flag only applies to missing hash (null/empty), not to corrupt/invalid hash values
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, "Hello", storedHash: "not-a-valid-hash", initializeMissingLanguages: true);
+
+        Assert.That(result.IsSafe, Is.False);
+        Assert.That(result.HashToWrite, Is.Null);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.None));
+    }
+
+    [Test]
+    public void Flag_enabled_empty_current_missing_hash_empty_source_initializes_hash()
+    {
+        // Both-empty case follows the normal aligned path (not the backfill path) because
+        // normalizedSource is also empty. The result is still safe + initialize, but via aligned logic.
+        var result = MicrosoftListsProvider.EvaluateLanguageField(null, null, storedHash: null, initializeMissingLanguages: true);
+
+        // aligned (both empty) → initialize hash via normal aligned branch
+        Assert.That(result.IsSafe, Is.True);
+        Assert.That(result.HashUpdate, Is.EqualTo(HashUpdateKind.Initialize));
     }
 
     [Test]
